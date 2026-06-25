@@ -5,8 +5,10 @@ import streamlit as st
 from datetime import datetime, date
 
 ONEDRIVE_URL = (
-    "https://cabeltept-my.sharepoint.com/:x:/g/personal/daniel_matos_cabelte_pt"
-    "/IQBtRls7_93QQIbemvifSHHSAYrsoiYpX1-V29WVApXe5CY?e=Y83Wqv&download=1"
+    "https://cabeltept-my.sharepoint.com/:x:/g/personal"
+    "/daniel_matos_cabelte_pt"
+    "/IQBtRls7_93QQIbemvifSHHSAYrsoiYpX1-V29WVApXe5CY"
+    "?e=Y83Wqv&download=1"
 )
 
 
@@ -19,7 +21,7 @@ def find_col(df, *keywords):
 
 
 @st.cache_data(ttl=3600)
-def _download_raw() -> bytes:
+def _download_raw():
     r = requests.get(ONEDRIVE_URL, allow_redirects=True, timeout=60)
     r.raise_for_status()
     return r.content
@@ -45,7 +47,7 @@ def load_all_data(progress_callback=None):
     try:
         raw = _download_raw()
     except Exception as e:
-        result["errors"].append(f"Erro ao descarregar ficheiro OneDrive: {e}")
+        result["errors"].append(f"Erro ao descarregar: {e}")
         return result
 
     if progress_callback:
@@ -54,7 +56,7 @@ def load_all_data(progress_callback=None):
     try:
         sheets = pd.read_excel(io.BytesIO(raw), sheet_name=None)
     except Exception as e:
-        result["errors"].append(f"Erro ao ler o ficheiro Excel: {e}")
+        result["errors"].append(f"Erro ao ler Excel: {e}")
         return result
 
     df_stock_all    = sheets.get("Stock")
@@ -62,48 +64,61 @@ def load_all_data(progress_callback=None):
     df_quarentena   = sheets.get("Quarentena")
 
     if df_stock_all is None:
-        result["errors"].append("Sheet 'Stock' não encontrada no ficheiro.")
+        result["errors"].append("Sheet 'Stock' nao encontrada.")
     if df_carteira_all is None:
-        result["errors"].append("Sheet 'Carteira' não encontrada no ficheiro.")
+        result["errors"].append("Sheet 'Carteira' nao encontrada.")
     if df_quarentena is None:
-        result["errors"].append("Sheet 'Quarentena' não encontrada no ficheiro.")
+        result["errors"].append("Sheet 'Quarentena' nao encontrada.")
     else:
         result["quarentena_df"] = df_quarentena
 
     if progress_callback:
-        progress_callback(0.5, "A processar histórico de stock...")
+        progress_callback(0.5, "A processar stock...")
 
-    # ── Snapshots de stock (agrupados por DATA EXTRAÇÃO) ──────────────
     stock_snapshots = []
     if df_stock_all is not None:
-        date_col = find_col(df_stock_all, "DATA", "EXTRA") or find_col(df_stock_all, "DATA")
-        if date_col:
-            df_stock_all[date_col] = pd.to_datetime(df_stock_all[date_col], errors="coerce")
-            for dt, grp in df_stock_all.groupby(date_col, sort=True):
+        dcol = (
+            find_col(df_stock_all, "DATA", "EXTRA")
+            or find_col(df_stock_all, "DATA")
+        )
+        if dcol:
+            df_stock_all[dcol] = pd.to_datetime(
+                df_stock_all[dcol], errors="coerce"
+            )
+            for dt, grp in df_stock_all.groupby(dcol, sort=True):
                 try:
                     iso = dt.isocalendar()
                     label = f"W{iso.week:02d}_{iso.year}"
                 except Exception:
                     label = str(dt.date())
-                stock_snapshots.append((label, dt.date(), grp.reset_index(drop=T
+                stock_snapshots.append(
+                    (label, dt.date(), grp.reset_index(drop=True))
+                )
         else:
-            stock_snapshots.append(("Actual", date.today(), df_stock_all))
+            stock_snapshots.append(
+                ("Actual", date.today(), df_stock_all)
+            )
 
     if progress_callback:
-        progress_callback(0.7, "A processar histórico de carteira...")
+        progress_callback(0.7, "A processar carteira...")
 
-    # ── Snapshots de carteira (agrupados por DATA EXTRAÇÃO) ───────────
     carteira_snapshots = []
     if df_carteira_all is not None:
-        date_col = find_col(df_carteira_all, "DATA", "EXTRA") or find_col(df_car
-        if date_col:
-            df_carteira_all[date_col] = pd.to_datetime(df_carteira_all[date_col]
-            for dt, grp in df_carteira_all.groupby(date_col, sort=True):
-                carteira_snapshots.append((dt, grp.reset_index(drop=True)))
+        dcol = (
+            find_col(df_carteira_all, "DATA", "EXTRA")
+            or find_col(df_carteira_all, "DATA")
+        )
+        if dcol:
+            df_carteira_all[dcol] = pd.to_datetime(
+                df_carteira_all[dcol], errors="coerce"
+            )
+            for dt, grp in df_carteira_all.groupby(dcol, sort=True):
+                carteira_snapshots.append(
+                    (dt, grp.reset_index(drop=True))
+                )
         else:
             carteira_snapshots.append((datetime.now(), df_carteira_all))
 
-    # ── Snapshot mais recente ─────────────────────────────────────────
     if stock_snapshots:
         label_l, dt_l, df_l = stock_snapshots[-1]
         result["stock_latest_df"] = df_l
@@ -112,27 +127,35 @@ def load_all_data(progress_callback=None):
     carteira_latest_df = None
     if carteira_snapshots:
         dt_c, carteira_latest_df = carteira_snapshots[-1]
-        result["carteira_file"] = str(dt_c.date() if hasattr(dt_c, "date") else dt_c)
+        result["carteira_file"] = str(
+            dt_c.date() if hasattr(dt_c, "date") else dt_c
+        )
 
     result["stock_snapshots"]    = stock_snapshots
     result["carteira_snapshots"] = carteira_snapshots
 
     if progress_callback:
-        progress_callback(0.9, "A calcular métricas...")
+        progress_callback(0.9, "A calcular metricas...")
 
     result["metrics"] = _compute_metrics(
-        result["stock_latest_df"], carteira_latest_df, result["quarentena_df"]
+        result["stock_latest_df"],
+        carteira_latest_df,
+        result["quarentena_df"],
     )
     result["context"] = _build_context(
-        stock_snapshots, carteira_snapshots, result["quarentena_df"],
-        result["metrics"], result["stock_file"], result["carteira_file"]
+        stock_snapshots,
+        carteira_snapshots,
+        result["quarentena_df"],
+        result["metrics"],
+        result["stock_file"],
+        result["carteira_file"],
     )
     result["periodos_disponiveis"] = [
         f"{label} ({dt})" for label, dt, _ in stock_snapshots
     ]
 
     if progress_callback:
-        progress_callback(1.0, "Concluído.")
+        progress_callback(1.0, "Concluido.")
 
     return result
 
@@ -150,12 +173,18 @@ def _compute_metrics(df_stock, df_carteira, df_quarentena):
             m["bloqueado_ton"] = m["total_ton"] - m["disponivel_ton"]
 
     if df_carteira is not None:
-        peso_col = find_col(df_carteira, "PESO") or find_col(df_carteira, "TON")
+        peso_col = (
+            find_col(df_carteira, "PESO")
+            or find_col(df_carteira, "TON")
+        )
         if peso_col:
             m["alocado_carteira_ton"] = df_carteira[peso_col].sum()
 
     if df_quarentena is not None:
-        peso_col = find_col(df_quarentena, "PESO") or find_col(df_quarentena, "T
+        peso_col = (
+            find_col(df_quarentena, "PESO")
+            or find_col(df_quarentena, "TON")
+        )
         if peso_col:
             m["quarentena_ton"] = df_quarentena[peso_col].sum()
 
@@ -171,10 +200,16 @@ def _build_stock_history_summary(stock_snapshots):
         total_col = find_col(df, "TOTAL", "TON")
         disp_col  = find_col(df, "DISP", "TON")
         row = {"Periodo": label, "Data": str(dt)}
-        row["Total_ton"]     = round(df[total_col].sum(), 2) if total_col else N
-        row["Disponivel_ton"] = round(df[disp_col].sum(), 2) if disp_col else None
+        row["Total_ton"] = (
+            round(df[total_col].sum(), 2) if total_col else None
+        )
+        row["Disponivel_ton"] = (
+            round(df[disp_col].sum(), 2) if disp_col else None
+        )
         if row["Total_ton"] and row["Disponivel_ton"]:
-            row["Bloqueado_ton"] = round(row["Total_ton"] - row["Disponivel_ton"], 2)
+            row["Bloqueado_ton"] = round(
+                row["Total_ton"] - row["Disponivel_ton"], 2
+            )
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -182,43 +217,52 @@ def _build_stock_history_summary(stock_snapshots):
 def _build_carteira_history_summary(carteira_snapshots):
     rows = []
     for dt, df in carteira_snapshots:
-        peso_col = find_col(df, "PESO") or find_col(df, "TON")
-        alocado  = round(df[peso_col].sum(), 2) if peso_col else None
-        rows.append({"Data": str(dt.date() if hasattr(dt, "date") else dt), "Alocado_Carteira_ton": alocado})
+        peso_col = (
+            find_col(df, "PESO") or find_col(df, "TON")
+        )
+        alocado = round(df[peso_col].sum(), 2) if peso_col else None
+        data_str = str(dt.date() if hasattr(dt, "date") else dt)
+        rows.append({
+            "Data": data_str,
+            "Alocado_Carteira_ton": alocado,
+        })
     return pd.DataFrame(rows)
 
 
-def _build_context(stock_snapshots, carteira_snapshots, df_quarentena, metrics, stock_file, carteira_file):
+def _build_context(
+    stock_snapshots, carteira_snapshots,
+    df_quarentena, metrics, stock_file, carteira_file
+):
     lines = [
-        "=== DADOS HISTÓRICOS DO STOCK CABELTE ===",
-        f"Extracção mais recente stock: {stock_file}",
-        f"Extracção mais recente carteira: {carteira_file}",
-        f"Total de snapshots de stock disponíveis: {len(stock_snapshots)}",
-        f"Total de snapshots de carteira disponíveis: {len(carteira_snapshots)}",
+        "=== DADOS HISTORICOS DO STOCK CABELTE ===",
+        f"Extracao mais recente stock: {stock_file}",
+        f"Extracao mais recente carteira: {carteira_file}",
+        f"Snapshots stock: {len(stock_snapshots)}",
+        f"Snapshots carteira: {len(carteira_snapshots)}",
         "",
-        "## MÉTRICAS DA ÚLTIMA EXTRACÇÃO",
+        "## METRICAS DA ULTIMA EXTRACAO",
     ]
 
     for key, label in [
-        ("total_ton",           "Stock Total"),
-        ("disponivel_ton",      "Disponível"),
-        ("bloqueado_ton",       "Bloqueado ERP"),
-        ("alocado_carteira_ton","Alocado Carteira"),
-        ("gap_ton",             "Gap STK vs Carteira"),
-        ("quarentena_ton",      "Quarentena"),
+        ("total_ton",            "Stock Total"),
+        ("disponivel_ton",       "Disponivel"),
+        ("bloqueado_ton",        "Bloqueado ERP"),
+        ("alocado_carteira_ton", "Alocado Carteira"),
+        ("gap_ton",              "Gap STK vs Carteira"),
+        ("quarentena_ton",       "Quarentena"),
     ]:
         if key in metrics:
             lines.append(f"- {label}: {metrics[key]:,.2f} ton")
 
     if stock_snapshots:
         hist = _build_stock_history_summary(stock_snapshots)
-        lines.append("\n## SÉRIE HISTÓRICA DO STOCK (todos os snapshots)")
+        lines.append("\n## SERIE HISTORICA DO STOCK")
         lines.append(hist.to_csv(index=False))
 
     if carteira_snapshots:
-        cart_hist = _build_carteira_history_summary(carteira_snapshots)
-        lines.append("\n## SÉRIE HISTÓRICA DA CARTEIRA DE ENCOMENDAS")
-        lines.append(cart_hist.to_csv(index=False))
+        ch = _build_carteira_history_summary(carteira_snapshots)
+        lines.append("\n## SERIE HISTORICA DA CARTEIRA")
+        lines.append(ch.to_csv(index=False))
 
     if stock_snapshots:
         _, _, df_latest = stock_snapshots[-1]
@@ -230,16 +274,27 @@ def _build_context(stock_snapshots, carteira_snapshots, df_quarentena, metrics, 
             agg = {total_col: "sum"}
             if disp_col:
                 agg[disp_col] = "sum"
-            grouped = df_latest.groupby(artigo_col).agg(agg).reset_index()
-            grouped.columns = ["ARTIGO", "TOTAL_TON"] + (["DISP_TON"] if disp_co
-            grouped = grouped.sort_values("TOTAL_TON", ascending=False)
-            lines.append("\n## STOCK ACTUAL POR ARTIGO (último snapshot, ordenad
+            grouped = (
+                df_latest.groupby(artigo_col)
+                .agg(agg)
+                .reset_index()
+            )
+            cols = ["ARTIGO", "TOTAL_TON"]
+            if disp_col:
+                cols.append("DISP_TON")
+            grouped.columns = cols
+            grouped = grouped.sort_values(
+                "TOTAL_TON", ascending=False
+            )
+            lines.append("\n## STOCK POR ARTIGO (ultimo snapshot)")
             lines.append(grouped.to_csv(index=False))
         else:
-            lines.append(f"\n## COLUNAS DO FICHEIRO STOCK: {list(df_latest.columns)}")
+            lines.append(
+                f"\n## COLUNAS STOCK: {list(df_latest.columns)}"
+            )
 
     if df_quarentena is not None and len(df_quarentena) > 0:
-        lines.append("\n## LOTES EM QUARENTENA (actual)")
+        lines.append("\n## LOTES EM QUARENTENA")
         lines.append(df_quarentena.to_csv(index=False))
 
     return "\n".join(lines)
