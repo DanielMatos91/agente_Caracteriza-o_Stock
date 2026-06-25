@@ -2,13 +2,24 @@ import os
 import glob
 import re
 import pandas as pd
+import requests
+import io
+import streamlit as st
 from datetime import datetime, date
 
-BASE_PATH = r"F:\Dados\CSCM\Indicadores\Caracterização do Stock"
-STOCK_FOLDER = os.path.join(BASE_PATH, "Histórico Stock")
-CARTEIRA_FOLDER = os.path.join(BASE_PATH, "Histórico Carteira")
-QUARENTENA_FILE = os.path.join(STOCK_FOLDER, "Lotes Quarentena.xlsx")
+ONEDRIVE_URL = "https://cabeltept-my.sharepoint.com/:x:/g/personal/daniel_matos_cabelte_pt/IQBtRls7_93QQIbemvifSHHSAYrsoiYpX1-V29WVApXe5CY?e=Y83Wqv"
 
+@st.cache_data(ttl=3600)  # cache 1h — não descarrega a cada mensagem do chat
+def load_all_data():
+    r = requests.get(ONEDRIVE_URL, allow_redirects=True)
+    r.raise_for_status()
+    buf = io.BytesIO(r.content)
+
+    return {
+        "stock":      pd.read_excel(buf, sheet_name="Stock"),
+        "carteira":   pd.read_excel(buf, sheet_name="Carteira"),
+        "quarentena": pd.read_excel(buf, sheet_name="Quarentena"),
+    }
 
 def find_col(df, *keywords):
     for col in df.columns:
